@@ -1,0 +1,35 @@
+#cloud-config
+# vim: syntax=yaml
+hostname: {{ hostname }}
+fqdn: {{ hostname }}.{{ domain }}
+
+users:
+  - default
+  - name: root
+    ssh-authorized-keys:
+      - {{ pub_key }}
+
+write_files:
+  - path: /etc/sysconfig/network-scripts/ifcfg-eth0
+    content: |
+      DEVICE='eth0'
+      ONBOOT='yes'
+      TYPE='Ethernet'
+      BOOTPROTO='dhcp'
+      PREFIX=24
+      GATEWAY=192.168.122.1
+      DNS1=192.168.122.1
+  - path: /etc/sysconfig/network
+    content: |
+      NETWORKING=yes
+      NOZEROCONF=no
+      HOSTNAME={{ hostname }}
+  - path: /etc/sysctl.conf
+    content: |
+      net.ipv4.ip_forward = 1
+
+runcmd:
+  - /usr/sbin/sysctl -p
+  - /usr/bin/sed  -i 's/\(127.0.0.1\)[[:space:]]*\(localhost.*\)/\1 {{ hostname }}.{{ domain }} {{ hostname }} \2/' /etc/hosts
+  - /usr/bin/systemctl restart NetworkManager
+  - /usr/sbin/ip a l
