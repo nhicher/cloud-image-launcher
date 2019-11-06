@@ -1,0 +1,11 @@
+---
+centos7:
+  url: 'https://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud.qcow2'
+  image: 'CentOS-7-x86_64-GenericCloud.qcow2'
+  distro: 'fedora'
+  os: 'centos7.0'
+fedora31:
+  url: 'https://download.fedoraproject.org/pub/fedora/linux/releases/31/Cloud/x86_64/images/Fedora-Cloud-Base-31-1.9.x86_64.qcow2'
+  image: 'Fedora-Cloud-Base-31-1.9.x86_64.qcow2'
+  distro: 'centos'
+  os: 'fedora30'

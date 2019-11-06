@@ -6,30 +6,19 @@ import logging
 import os
 import subprocess
 import sys
+import yaml
 
 from jinja2 import FileSystemLoader
 from jinja2.environment import Environment
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 
 class CloudImgLauncher:
 
     def __init__(self):
         self.conn = libvirt.open('qemu:///system')
-        self.images = {
-            'centos7': {
-                'url': 'https://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud.qcow2',
-                'image': 'CentOS-7-x86_64-GenericCloud.qcow2',
-                'distro': 'fedora',
-                'os': 'centos7.0'
-            },
-            'fedora31': {
-                'url': 'https://download.fedoraproject.org/pub/fedora/linux/releases/31/Cloud/x86_64/images/Fedora-Cloud-Base-31-1.9.x86_64.raw.xz',
-                'image': 'Fedora-Cloud-Base-31-1.9.x86_64.qcow2',
-                'distro': 'centos',
-                'os': 'fedora30'
-            },
-        }
+        self.images = yaml.safe_load(open('distros/distros.yaml'))
         self.images_path = "/var/lib/libvirt/images"
 
     def parse_arguments(self, args=sys.argv[1:]):
@@ -47,7 +36,7 @@ class CloudImgLauncher:
             'fetch', help='Fetch distro image from Internet')
 
         parser_fetch.add_argument(
-            '-d', '--distribution', type=str, default='fedora31',
+            '-d', '--distribution', type=str, required=True,
             help='distribution image to fetch')
 
         parser_destroy.add_argument(
@@ -56,12 +45,13 @@ class CloudImgLauncher:
 
         parser_create.add_argument(
             '-p', '--pub_key_path', type=str,
+            default='~/.ssh/id_rsa.pub',
             help='path to the pub key path')
         parser_create.add_argument(
             '-n', '--hostname', type=str,
             help='define hostname')
         parser_create.add_argument(
-            '-d', '--distribution', type=str, default='fedora31',
+            '-d', '--distribution', type=str, required=True,
             help='distribution to use')
         parser_create.add_argument(
             '-m', '--memory', type=str, default='4096',
@@ -83,7 +73,7 @@ class CloudImgLauncher:
 
         # create file handler logs even debug messages
         file_handler = RotatingFileHandler(
-            '/var/log/cloudimg-launcher.log', 'a', 300)
+            '/tmp/cloud-image-launcher.log', 'a', 300)
         file_handler.setLevel(logging.DEBUG)
 
         # create console handler with a higher log level
@@ -130,10 +120,6 @@ class CloudImgLauncher:
             return is_instance
 
     def _create_image(self):
-        if not self.args.distribution:
-            print('you must specify a distribution')
-            sys.exit(0)
-
         base_image = os.path.join(
             self.images_path, self.images[self.args.distribution]['image'])
         disk = os.path.join(self.images_path, self.args.hostname)
@@ -221,15 +207,20 @@ class CloudImgLauncher:
         self.logger.info('instance %s destroyed' % self.args.hostname)
 
     def fetch(self):
-        if not self.args.distribution:
+        distribution = self.args.distribution
+        distributions = [image for image in self.images.keys()]
+        if distribution not in self.images:
             self.logger.info(
-                "Please provide the distribution to download")
+                f"Available distributions: {', '.join(distributions)}")
             sys.exit(1)
         base_image = os.path.join(
-            self.images_path, self.images[self.args.distribution]['image'])
+            self.images_path, self.images[distribution]['image'])
         url = self.images[self.args.distribution]['url']
-        command = ['curl', '-o', base_image, '-L', url]
-        self.execute(command)
+        if not Path(base_image).is_file():
+            self.logger.info(f'Fetching {url}')
+            command = ['sudo', 'curl', '-o', base_image, '-L', url]
+            self.execute(command)
+        self.logger.info(f'Image {distribution} availables')
 
     def main(self):
         self.parse_arguments()
