@@ -7,6 +7,9 @@ import os
 import subprocess
 import sys
 import yaml
+import time
+import io
+from xml.dom import minidom
 
 from jinja2 import FileSystemLoader
 from jinja2.environment import Environment
@@ -119,6 +122,17 @@ class CloudImgLauncher:
         finally:
             return is_instance
 
+    def get_instance_macs(self):
+        macs = []
+        vmdom = self.conn.lookupByName(self.args.hostname)
+        doc = minidom.parse(io.StringIO(vmdom.XMLDesc()))
+        for node in doc.getElementsByTagName('devices'):
+            i_nodes = node.getElementsByTagName('interface')
+            for i_node in i_nodes:
+                for v_node in i_node.getElementsByTagName('mac'):
+                    macs.append(v_node.getAttribute('address'))
+        return macs
+
     def _create_image(self):
         base_image = os.path.join(
             self.images_path, self.images[self.args.distribution]['image'])
@@ -128,6 +142,38 @@ class CloudImgLauncher:
                    base_image, disk]
         self.execute(command, output='devnull')
         self.logger.info('%s created' % disk)
+
+    def get_ip_address_from_dhcp_leases(self, macs):
+        if not macs:
+            self.logger.info("No MAC addr found for that dom")
+            return
+        # Only use the first mac we found on default network
+        mac = macs[0]
+        self.logger.info(
+            "Getting IP address - waiting for DHCP lease (%s) ..." % mac)
+        max_attempt = 45
+        net = [n for n in self.conn.listAllNetworks()
+               if n.name() == 'default'][0]
+        ipaddr = None
+        attempt = 0
+        while True:
+            _ipaddr = [lease['ipaddr'] for lease in net.DHCPLeases()
+                       if lease['mac'] == mac]
+            if not _ipaddr:
+                if attempt == max_attempt:
+                    self.logger.info(
+                        "Timeout trying to discover VM ip address")
+                    break
+                time.sleep(1)
+                attempt = attempt + 1
+            else:
+                ipaddr = _ipaddr[0]
+                break
+        return ipaddr
+
+    def get_dom_ip(self):
+        macs = self.get_instance_macs()
+        return self.get_ip_address_from_dhcp_leases(macs)
 
     def _create_cloud_init_config(self):
         self.logger.info('create cloud-init config file')
@@ -175,9 +221,12 @@ class CloudImgLauncher:
                    '--ram', self.args.memory,
                    '--name', self.args.hostname]
         self.execute(command)
-        self.logger.info('To get the IP address check the DHCP leases')
-        self.logger.info(
-            'sudo virsh --connect=qemu:///system net-dhcp-leases default')
+        ipaddr = self.get_dom_ip()
+        if not ipaddr:
+            self.logger.info(
+                'sudo virsh --connect=qemu:///system net-dhcp-leases default')
+        else:
+            self.logger.info("Your VM net iface is up at %s" % ipaddr)
 
     def create(self):
         if self.is_instance():
